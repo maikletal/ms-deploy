@@ -1,0 +1,37 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: backend
+spec:
+  selector:
+    matchLabels:
+      app: msjava
+      tier: backend
+      track: stable
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: msjava
+        tier: backend
+        track: stable
+    spec:
+      containers:
+        - name: msjava
+          image: "eu.gcr.io/aks-test-307815/msjava:snapshot"
+          ports:
+            - name: http
+              containerPort: 8090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: msjava
+spec:
+  selector:
+    app: msjava
+    tier: backend
+  ports:
+    - protocol: TCP
+      port: 8090
+      targetPort: http
