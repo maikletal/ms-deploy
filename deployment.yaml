@@ -1,77 +1,256 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: ms
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: ms-config
+  namespace: ms
+  labels:
+    app: ms
+data:
+  API_URL: backend
+---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: backend
+  # namespace: ms
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      app: msjava
+      app: ms
       tier: backend
       track: stable
-  replicas: 1
   template:
     metadata:
       labels:
-        app: msjava
+        app: ms
         tier: backend
         track: stable
     spec:
       containers:
         - name: msjava
-          image: "eu.gcr.io/aks-test-307815/msjava:snapshot"
+          image: eu.gcr.io/aks-test-307815/msjava:snapshot
           ports:
-            - name: http
-              containerPort: 8090
----
-apiVersion: v1
-kind: Service
-metadata:
-  name: msjava
-spec:
-  selector:
-    app: msjava
-    tier: backend
-  ports:
-    - protocol: TCP
-      port: 8090
-      targetPort: http
+            - containerPort: 8090
 ---
 apiVersion: apps/v1
 kind: Deployment
 metadata:
   name: frontend
+  namespace: ms
 spec:
+  replicas: 1
   selector:
     matchLabels:
-      app: msangular
+      app: ms
       tier: frontend
       track: stable
-  replicas: 1
   template:
     metadata:
       labels:
-        app: msangular
+        app: ms
         tier: frontend
         track: stable
     spec:
       containers:
         - name: msangular
-          image: "eu.gcr.io/aks-test-307815/msangular:snapshot"
-          lifecycle:
-            preStop:
-              exec:
-                command: ["/usr/sbin/nginx","-s","quit"]
+          image: eu.gcr.io/aks-test-307815/msangular:snapshot
+          ports:
+            - containerPort: 80
+          env:
+            - name: API_URL
+              valueFrom:
+                configMapKeyRef:
+                  name: ms-config
+                  key: API_URL
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: gateway
+  namespace: ms
+spec:
+  selector:
+    matchLabels:
+      app: ms
+      tier: gateway
+      track: stable
+  replicas: 1
+  template:
+    metadata:
+      labels:
+        app: ms
+        tier: gateway
+        track: stable
+    spec:
+      containers:
+        - name: msgateway
+          image: eu.gcr.io/aks-test-307815/msgateway:snapshot
+          ports:
+            - containerPort: 80
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: frontend-service
+#   namespace: ms
+# spec:
+#   selector:
+#     app: ms
+#     tier: frontend
+#   ports:
+#     - protocol: TCP
+#       port: 80
+#       targetPort: 80
+#   type: LoadBalancer
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: backend-service
+#   namespace: ms
+# spec:
+#   type: LoadBalancer
+#   selector:
+#     app: ms
+#     tier: backend
+#   ports:
+#     - protocol: TCP
+#       port: 8090
+#       targetPort: 8090
+# ---
+# apiVersion: v1
+# kind: Service
+# metadata:
+#   name: gateway-service
+#   namespace: ms
+# spec:
+#   ports:
+#     - port: 80
+#       protocol: TCP
+#   selector:
+#     app: ms
+#     tier: gateway
+#   type: LoadBalancer
+# ---
+# apiVersion: networking.k8s.io/v1beta1
+# kind: Ingress
+# metadata:
+#   name: ms-ingress
+#   namespace: ms
+#   annotations:
+#     nginx.ingress.kubernetes.io/rewrite-target: /
+# spec:
+#   rules:
+#     - http:
+#         paths:
+#           - backend:
+#               serviceName: gateway-service
+#               servicePort: 80
 ---
 apiVersion: v1
 kind: Service
 metadata:
-  name: frontend
+  name: frontend-service
+  namespace: ms
 spec:
+  type: LoadBalancer
   selector:
-    app: msangular
+    app: ms
     tier: frontend
   ports:
-    - protocol: "TCP"
-      port: 80
-      targetPort: 80
+  - port: 80
+    targetPort: 80
+    protocol: TCP
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: backend-service
+  namespace: ms
+spec:
   type: LoadBalancer
+  selector:
+    app: ms
+    tier: backend
+  ports:
+  - port: 8090
+    targetPort: 8090
+    protocol: TCP
+# ---
+# apiVersion: networking.k8s.io/v1beta1
+# apiVersion: extensions/v1beta1
+# kind: Ingress
+# metadata:
+#   name: ms-ingress
+#   # namespace: ms
+#   # annotations:
+#   #   # kubernetes.io/ingress.class: nginx
+#   #   # kubernetes.io/ingress.global-static-ip-name: "web-static-ip"
+#   #   nginx.ingress.kubernetes.io/rewrite-target: /
+# spec:
+#   # backend:
+#   #   serviceName: backend-service
+#   #   servicePort: 8090
+#   rules:
+#   - http:
+#       paths:
+#       # - path: /*
+#       #   backend:
+#       #     serviceName: frontend-service
+#       #     servicePort: 80
+#       - path: /*
+#         backend:
+#           serviceName: backend-service
+#           servicePort: 80
+# ---
+# apiVersion: networking.k8s.io/v1beta1
+# kind: Ingress
+# metadata:
+#   name: ms-ingress
+#   namespace: ms
+# spec:
+#   rules:
+#   - host: frontend.example.com
+#     http:
+#       paths:
+#       - backend:
+#           serviceName: frontend-service
+#           servicePort: 80
+#   - host: backend.example.com
+#     http:
+#       paths:
+#       - backend:
+#           serviceName: backend-service
+#           servicePort: 8090
+---
+apiVersion: v1
+kind: Service
+metadata:
+  annotations:
+    cloud.google.com/neg: '{"ingress":true}'
+  finalizers:
+  - service.kubernetes.io/load-balancer-cleanup
+  name: gateway-service
+  namespace: ms
+spec:
+  externalTrafficPolicy: Cluster
+  ports:
+  - port: 80
+    protocol: TCP
+    targetPort: 80
+  selector:
+    app: ms
+    tier: gateway
+    track: stable
+  sessionAffinity: None
+  type: LoadBalancer
+
+  # kubectl expose deployment backend --type=LoadBalancer --name=backend-service
+
+
